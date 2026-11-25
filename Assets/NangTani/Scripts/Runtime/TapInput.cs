@@ -18,6 +18,9 @@ namespace NangTani
         public bool Tapped { get; private set; }
         public bool TimedOut { get; private set; }
 
+        /// <summary>Nombre d'appuis depuis le debut (pour surveiller un appui sans attendre dans Wait).</summary>
+        public int PressCount { get; private set; }
+
         void Awake()
         {
             _tap = new InputAction("NangTani_Tap", InputActionType.Button);
@@ -43,6 +46,7 @@ namespace NangTani
 
         void OnPerformed(InputAction.CallbackContext ctx)
         {
+            PressCount++;
             if (_armed) _pressed = true;
         }
 

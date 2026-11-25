@@ -1,6 +1,7 @@
 using System.Collections;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace NangTani
 {
@@ -24,6 +25,20 @@ namespace NangTani
                 text.text = "";
                 text.alpha = 0f;
             }
+        }
+
+        // Dans Start (et non Awake) : le composant TextMeshPro est alors forcement initialise.
+        void Start()
+        {
+            if (text != null) DrawOnTop(text);
+        }
+
+        /// <summary>Affiche le texte par-dessus le decor et par-dessus le quad de fondu au noir.</summary>
+        public static void DrawOnTop(TextMeshPro label)
+        {
+            var material = label.fontMaterial; // copie propre a ce texte
+            material.renderQueue = (int)RenderQueue.Overlay + 100;
+            material.SetFloat("unity_GUIZTestMode", (float)CompareFunction.Always);
         }
 
         void LateUpdate()

@@ -14,7 +14,8 @@ namespace NangTani
     ///   4 Resolution - offrandes, excuses, Nang Tani se dissout, retour de la lune douce
     ///   5 Epilogue   - retour au village, Ram s'incline, tissu vert sur l'arbre
     ///
-    /// Les durees (WaitForSeconds) sont des valeurs de depart : on les ajustera au test pour viser 3 a 5 minutes.
+    /// Une introduction sur fond noir (IntroSequence) precede l'etape 0.
+    /// Rythme volontairement serre pour garder la tension : ajuster les durees au test.
     /// Chaque declencheur implicite a un delai de securite : si le joueur ne fait rien, l'experience avance quand meme.
     /// </summary>
     public class ExperienceDirector : MonoBehaviour
@@ -63,8 +64,18 @@ namespace NangTani
         [Header("Voix de Nang Tani (spatialisee)")]
         public AudioSource voiceSource;
 
+        [Header("Temps de lecture des sous-titres")]
+        [Tooltip("Vitesse de lecture laissee au joueur, en caracteres par seconde (plus petit = plus de temps).")]
+        [Min(5f)] public float readingCharsPerSecond = 14f;
+        [Tooltip("Secondes ajoutees a chaque replique, le temps que le regard trouve le texte.")]
+        [Min(0f)] public float readingMargin = 1.5f;
+        [Tooltip("Duree minimale d'affichage d'une replique, en secondes.")]
+        [Min(1f)] public float minLineSeconds = 3.5f;
+
         [Header("Test / debug (editeur)")]
         public Stage startStage = Stage.Village;
+        [Tooltip("Introduction sur fond noir avant le village (seulement si Start Stage = Village).")]
+        public bool showIntro = true;
         public bool debugKeys = true;
         public bool showEditorHelp = true;
         [Range(1f, 8f)] public float editorSpeed = 1f;
@@ -73,6 +84,7 @@ namespace NangTani
         public Stage CurrentStage { get; private set; }
 
         bool _voiceLoop;
+        IntroSequence _intro;
 
         // ------------------------------------------------------------------
         //  Cycle de vie
@@ -90,7 +102,20 @@ namespace NangTani
                 if (voiceSource.clip == null) voiceSource.clip = AudioPlaceholders.Murmur();
             }
 
-            StartCoroutine(Run(startStage));
+            if (showIntro && startStage == Stage.Village) StartCoroutine(IntroThenRun());
+            else StartCoroutine(Run(startStage));
+        }
+
+        IEnumerator IntroThenRun()
+        {
+            PrepareStage(Stage.Village);   // ecran noir, personnages en place
+            atmosphere.CutSilence();       // seule la musique accompagne l'introduction
+
+            if (_intro == null) _intro = GetComponent<IntroSequence>();
+            if (_intro == null) _intro = gameObject.AddComponent<IntroSequence>();
+            yield return StartCoroutine(_intro.Play(tapInput, subtitles.text.font));
+
+            yield return StartCoroutine(Run(Stage.Village));
         }
 
         void OnDestroy()
@@ -104,7 +129,8 @@ namespace NangTani
             var kb = Keyboard.current;
             if (kb == null) return;
 
-            if (kb.digit1Key.wasPressedThisFrame) Jump(Stage.Village);
+            if (kb.digit0Key.wasPressedThisFrame) ReplayIntro();
+            else if (kb.digit1Key.wasPressedThisFrame) Jump(Stage.Village);
             else if (kb.digit2Key.wasPressedThisFrame) Jump(Stage.Shift);
             else if (kb.digit3Key.wasPressedThisFrame) Jump(Stage.Clearing);
             else if (kb.digit4Key.wasPressedThisFrame) Jump(Stage.Climax);
@@ -116,20 +142,32 @@ namespace NangTani
         void OnGUI()
         {
             if (!Application.isEditor || !showEditorHelp) return;
-            GUI.Label(new Rect(10f, 10f, 900f, 24f),
+            GUI.Label(new Rect(10f, 10f, 1100f, 24f),
                 "NANG TANI  |  etape : " + CurrentStage +
-                "  |  touches 1-6 : aller a l'etape  |  R : recommencer  |  clic droit + souris : regarder  |  Espace : gachette");
+                "  |  0 : intro  |  1-6 : aller a l'etape  |  R : recommencer  |  clic droit + souris : regarder  |  Espace : gachette");
         }
 
         /// <summary>Saute a une etape (remet le monde dans l'etat de debut de cette etape).</summary>
         public void Jump(Stage stage)
         {
+            StopEverything();
+            StartCoroutine(Run(stage));
+        }
+
+        void ReplayIntro()
+        {
+            StopEverything();
+            StartCoroutine(IntroThenRun());
+        }
+
+        void StopEverything()
+        {
             StopAllCoroutines();
+            if (_intro != null) _intro.Cancel();
             if (atmosphere != null) atmosphere.CancelAll();
             if (subtitles != null) subtitles.Hide();
             _voiceLoop = false;
             if (voiceSource != null) voiceSource.Stop();
-            StartCoroutine(Run(stage));
         }
 
         IEnumerator Run(Stage first)
@@ -252,13 +290,15 @@ namespace NangTani
             leafOnGround.SetActive(true);
         }
 
-        IEnumerator Line(string speaker, string text, float seconds)
+        /// <summary>Affiche une replique et attend ; la duree depend de la longueur du texte.</summary>
+        IEnumerator Line(string speaker, string text)
         {
+            float seconds = Mathf.Max(minLineSeconds, readingMargin + text.Length / readingCharsPerSecond);
             string shown = string.IsNullOrEmpty(speaker)
                 ? text
                 : "<size=65%><color=#8FB3C8>" + speaker + "</color></size>\n" + text;
             subtitles.Show(shown, seconds);
-            yield return new WaitForSeconds(seconds + 0.9f);
+            yield return new WaitForSeconds(seconds + 0.85f);
         }
 
         // ------------------------------------------------------------------
@@ -267,27 +307,33 @@ namespace NangTani
 
         IEnumerator VillageRoutine()
         {
-            yield return StartCoroutine(fader.FadeTo(0f, 3.5f));
+            yield return StartCoroutine(fader.FadeTo(0f, 1.5f));
+            yield return new WaitForSeconds(1f);
 
-            // Le joueur regarde autour de lui : villageois, rituel, lune.
-            yield return new WaitForSeconds(6f);
-
-            // Regard soutenu sur l'arbre sacre (CDD : 2 s). Sans action du joueur : on continue apres 30 s.
-            yield return StartCoroutine(sacredTreeGaze.Wait(30f));
+            // Regard soutenu sur l'arbre sacre (CDD : 2 s). Sans action du joueur : Ming commence apres 4 s.
+            yield return StartCoroutine(sacredTreeGaze.Wait(4f));
             atmosphere.BlendTo(AtmosphereState.Listening, 3f);
 
             // La legende de Ming et son avertissement : les regles du monde.
-            yield return StartCoroutine(Line("Ming", Dialogue.MingLegend, 8f));
-            yield return StartCoroutine(Line("Ming", Dialogue.MingWarning, 7f));
+            yield return StartCoroutine(Line("Ming", Dialogue.MingLegend));
 
-            // Ram ne croit pas a ces histoires : il se leve, va au bananier pres du temple, arrache une feuille.
-            yield return new WaitForSeconds(1.5f);
-            ram.StandUp();
-            yield return StartCoroutine(ram.MoveTo(ramLeafPickup.position, 1.2f));
-            yield return new WaitForSeconds(1.2f);
+            // Ram n'y croit pas : il se leve pendant l'avertissement et file vers le bananier.
+            Coroutine walk = StartCoroutine(RamGoesToLeaf());
+            yield return StartCoroutine(Line("Ming", Dialogue.MingWarning));
+            yield return walk;
+            yield return StartCoroutine(Line("Ram", Dialogue.RamScoff));
+
+            // La feuille est arrachee : le vent se leve aussitot (etape suivante).
             leafOnTree.SetActive(false);
             ramLeafInHand.SetActive(true);
-            yield return new WaitForSeconds(1f);
+            yield return new WaitForSeconds(0.6f);
+        }
+
+        IEnumerator RamGoesToLeaf()
+        {
+            yield return new WaitForSeconds(2.5f);
+            ram.StandUp();
+            yield return StartCoroutine(ram.MoveTo(ramLeafPickup.position, 1.7f));
         }
 
         // ------------------------------------------------------------------
@@ -297,32 +343,32 @@ namespace NangTani
         IEnumerator ShiftRoutine()
         {
             // "A ce moment precis, le vent se leve etrangement."
-            atmosphere.BlendTo(AtmosphereState.Unease, 7f);
+            atmosphere.BlendTo(AtmosphereState.Unease, 3.5f);
             StartCoroutine(RamLeaves());
-            yield return new WaitForSeconds(2f);
+            yield return new WaitForSeconds(0.8f);
 
             // Une voix feminine, tres faible, vient de la foret (hors axe) : le joueur tourne la tete.
             StartCoroutine(VoiceLoop());
-            yield return StartCoroutine(voiceTurn.Wait(40f));
+            yield return StartCoroutine(voiceTurn.Wait(8f));
 
             // Declenchement : bougies eteintes, le vent monte puis tombe net, silence, froid.
-            atmosphere.SnuffCandles(1.6f);
-            yield return atmosphere.WindGust(1.4f);
+            atmosphere.SnuffCandles(1f);
+            yield return atmosphere.WindGust(1.2f);
             _voiceLoop = false;
             voiceSource.Stop();
             atmosphere.CutSilence();
-            atmosphere.BlendTo(AtmosphereState.Silence, 6f);
-            yield return new WaitForSeconds(1.5f);
+            atmosphere.BlendTo(AtmosphereState.Silence, 2.5f);
+            yield return new WaitForSeconds(0.8f);
 
-            // Silhouette verte entre les arbres, un court instant.
+            // Silhouette verte entre les arbres : elle surgit, puis disparait vite.
             spirit.PlaceAt(voiceVillagePoint.position, anchorVillage.position);
-            yield return StartCoroutine(spirit.Appear(3.5f));
-            yield return new WaitForSeconds(3.5f);
-            yield return StartCoroutine(spirit.Dissolve(3f));
-            yield return new WaitForSeconds(1f);
+            yield return StartCoroutine(spirit.Appear(1.6f));
+            yield return new WaitForSeconds(1.8f);
+            yield return StartCoroutine(spirit.Dissolve(0.9f));
+            yield return new WaitForSeconds(0.4f);
 
-            yield return StartCoroutine(Line("Ming", Dialogue.MingFindRam, 5f));
-            yield return StartCoroutine(fader.FadeTo(1f, 2.5f));
+            yield return StartCoroutine(Line("Ming", Dialogue.MingFindRam));
+            yield return StartCoroutine(fader.FadeTo(1f, 1.2f));
         }
 
         IEnumerator RamLeaves()
@@ -341,7 +387,7 @@ namespace NangTani
             while (_voiceLoop)
             {
                 // La voix se rapproche (plus forte) si le joueur tarde a se retourner.
-                voiceSource.volume = Mathf.Lerp(0.25f, 1f, (Time.time - startTime) / 30f);
+                voiceSource.volume = Mathf.Lerp(0.35f, 1f, (Time.time - startTime) / 8f);
                 if (!voiceSource.isPlaying) voiceSource.Play();
                 yield return null;
             }
@@ -355,32 +401,32 @@ namespace NangTani
         {
             // Ecran noir : on marche dans la nuit (insectes, bruissement de feuilles).
             atmosphere.SetInstant(AtmosphereState.Path);
-            yield return new WaitForSeconds(0.6f);
+            yield return new WaitForSeconds(0.3f);
 
             rig.MoveTo(anchorClearing);
             SetupClearingCast();
             spirit.Hide();
             ramLeafInHand.SetActive(false);
-            yield return new WaitForSeconds(5f);
-            yield return StartCoroutine(fader.FadeTo(0f, 3f));
+            yield return new WaitForSeconds(2f);
+            yield return StartCoroutine(fader.FadeTo(0f, 1.5f));
 
             // On decouvre Ram assis sur la feuille, pres du temple abandonne.
-            yield return new WaitForSeconds(6f);
+            yield return new WaitForSeconds(2.5f);
 
             // Silence : une femme apparait entre les arbres.
             atmosphere.CutSilence();
-            atmosphere.BlendTo(AtmosphereState.Silence, 4f);
+            atmosphere.BlendTo(AtmosphereState.Silence, 2f);
             spirit.PlaceAt(spiritSpawn.position, ramClearingSeat.position);
-            yield return StartCoroutine(spirit.Appear(4f));
+            yield return StartCoroutine(spirit.Appear(2.2f));
 
-            // Elle s'approche lentement de Ram, qui tente de se lever mais reste fige.
+            // Elle s'approche de Ram, qui tente de se lever mais reste fige.
             ram.Trembling = true;
-            yield return StartCoroutine(spirit.WalkTo(spiritStop.position, 0.7f));
+            yield return StartCoroutine(spirit.WalkTo(spiritStop.position, 1.3f));
             ram.Trembling = false;
-            yield return new WaitForSeconds(1.2f);
+            yield return new WaitForSeconds(0.8f);
             spirit.FacePoint(ramClearingSeat.position);
 
-            yield return StartCoroutine(Line("Nang Tani", Dialogue.SpiritLine, 5f));
+            yield return StartCoroutine(Line("Nang Tani", Dialogue.SpiritLine));
         }
 
         // ------------------------------------------------------------------
@@ -389,18 +435,18 @@ namespace NangTani
 
         IEnumerator ClimaxRoutine()
         {
-            atmosphere.BlendTo(AtmosphereState.Supernatural, 9f);
+            atmosphere.BlendTo(AtmosphereState.Supernatural, 5f);
             ming.Trembling = true;
-            yield return new WaitForSeconds(2f);
-            yield return StartCoroutine(Line("Ming", Dialogue.MingWarning2, 4f));
+            yield return new WaitForSeconds(0.5f);
+            yield return StartCoroutine(Line("Ming", Dialogue.MingWarning2));
 
             // Le joueur s'attarde sur la scene (attenuation passive).
-            yield return new WaitForSeconds(8f);
-            yield return StartCoroutine(Line("", Dialogue.PocketHint, 5f));
+            yield return new WaitForSeconds(2.5f);
+            yield return StartCoroutine(Line("", Dialogue.PocketHint));
 
-            // L'unique action explicite : un tap de gachette. Sans tap, l'offrande se fait au bout de 50 s.
-            subtitles.Show(Dialogue.TapHint, 55f);
-            yield return StartCoroutine(tapInput.Wait(50f));
+            // L'unique action explicite : un tap de gachette. Sans tap, l'offrande se fait au bout de 20 s.
+            subtitles.Show(Dialogue.TapHint, 25f);
+            yield return StartCoroutine(tapInput.Wait(20f));
             subtitles.Hide();
         }
 
@@ -411,22 +457,22 @@ namespace NangTani
         IEnumerator ResolutionRoutine()
         {
             leafOnGround.SetActive(false);
-            yield return StartCoroutine(offerings.Reveal(1.3f));
-            yield return new WaitForSeconds(1.5f);
+            yield return StartCoroutine(offerings.Reveal(1.1f));
+            yield return new WaitForSeconds(0.6f);
 
-            yield return StartCoroutine(Line("", Dialogue.PlayerApology, 4f));
-            yield return new WaitForSeconds(3f); // long silence
-            yield return StartCoroutine(Line("Ram", Dialogue.RamApology, 4.5f));
-            yield return new WaitForSeconds(3f); // son regard se radoucit
+            yield return StartCoroutine(Line("", Dialogue.PlayerApology));
+            yield return new WaitForSeconds(2f); // long silence
+            yield return StartCoroutine(Line("Ram", Dialogue.RamApology));
+            yield return new WaitForSeconds(1.5f); // son regard se radoucit
 
             ming.Trembling = false;
-            atmosphere.BlendTo(AtmosphereState.Relief, 10f); // les ombres reprennent leur place
-            yield return new WaitForSeconds(4f);
-            yield return StartCoroutine(spirit.Dissolve(6f));
-            yield return new WaitForSeconds(3f);
+            atmosphere.BlendTo(AtmosphereState.Relief, 6f); // les ombres reprennent leur place
+            yield return new WaitForSeconds(1.5f);
+            yield return StartCoroutine(spirit.Dissolve(4f));
+            yield return new WaitForSeconds(1f);
 
-            yield return StartCoroutine(Line("", Dialogue.Narration, 4f));
-            yield return StartCoroutine(fader.FadeTo(1f, 3f));
+            yield return StartCoroutine(Line("", Dialogue.Narration));
+            yield return StartCoroutine(fader.FadeTo(1f, 1.8f));
         }
 
         // ------------------------------------------------------------------
@@ -454,23 +500,23 @@ namespace NangTani
 
             // Ming remet la feuille au pied de l'arbre sacre.
             leafAtSacredTree.SetActive(true);
-            yield return new WaitForSeconds(1f);
-            yield return StartCoroutine(fader.FadeTo(0f, 3f));
+            yield return new WaitForSeconds(0.3f);
+            yield return StartCoroutine(fader.FadeTo(0f, 1.8f));
 
-            atmosphere.RelightCandles(5f); // l'ambre revient
-            yield return new WaitForSeconds(4f);
+            atmosphere.RelightCandles(3f); // l'ambre revient
+            yield return new WaitForSeconds(2f);
 
             // Ram ne plaisante plus : il s'incline, puis attache un tissu vert au tronc.
-            yield return StartCoroutine(ram.Bow(5f));
+            yield return StartCoroutine(ram.Bow(3.5f));
             greenClothOnTree.SetActive(true);
-            yield return new WaitForSeconds(6f);
+            yield return new WaitForSeconds(3.5f);
         }
 
         IEnumerator Ending()
         {
-            yield return StartCoroutine(fader.FadeTo(1f, 3f));
-            subtitles.Show(Dialogue.EndTitle, 8f);
-            yield return new WaitForSeconds(11f);
+            yield return StartCoroutine(fader.FadeTo(1f, 2f));
+            subtitles.Show(Dialogue.EndTitle, 6f);
+            yield return new WaitForSeconds(7.5f);
             if (restartAtEnd) Jump(Stage.Village);
         }
     }
