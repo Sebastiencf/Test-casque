@@ -505,6 +505,42 @@ namespace NangTani.EditorTools
             return (int)(indices / 3);
         }
 
+        /// <summary>
+        /// Reconstruit la vegetation en posant chaque element a la hauteur donnee (utilise par le menu du sol).
+        /// heightFor(modele, x, z) renvoie la hauteur du terrain, ou null pour retirer l'element.
+        /// Repart toujours du plan d'origine : on peut l'appeler plusieurs fois sans cumuler les decalages.
+        /// </summary>
+        internal static bool RebuildVegetation(Transform env, System.Func<string, float, float, float?> heightFor)
+        {
+            var layoutAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(LayoutPath);
+            if (layoutAsset == null) return false;
+            var layout = JsonUtility.FromJson<Layout>(layoutAsset.text);
+
+            // Materiaux deja crees par le menu 2 : charges tels quels (les retouches sont conservees).
+            _missing = new HashSet<string>();
+            _materials = new Dictionary<string, Material>();
+            foreach (var guid in AssetDatabase.FindAssets("t:Material", new[] { MaterialDir }))
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+                if (m != null) _materials[m.name] = m;
+            }
+            if (_materials.Count == 0) return false;
+
+            var kept = new List<PlantItem>();
+            foreach (var item in layout.items)
+            {
+                var ground = heightFor(item.model, item.x, item.z);
+                if (!ground.HasValue) continue;
+                item.y += ground.Value;
+                kept.Add(item);
+            }
+
+            var old = env.Find("Decor_Vegetation");
+            if (old != null) Object.DestroyImmediate(old.gameObject);
+            BuildVegetation(env, kept.ToArray());
+            return true;
+        }
+
         // ==================================================================
         //  Divers
         // ==================================================================
