@@ -15,6 +15,13 @@ namespace NangTani
     {
         public Light moon;
         public float moonYaw = -30f;
+
+        [Tooltip("Multiplie la couleur de la lune de chaque etat (blanc = inchange).")]
+        public Color moonTint = Color.white;
+        [Tooltip("Multiplie la lumiere ambiante de chaque etat (blanc = inchange).")]
+        public Color ambientTint = Color.white;
+        [Tooltip("Multiplie l'intensite de la lune de chaque etat.")]
+        public float moonBoost = 1f;
         public AudioSource wind;
         public AudioSource crickets;
 
@@ -121,12 +128,12 @@ namespace NangTani
         {
             RenderSettings.fogDensity = s.fogDensity;
             RenderSettings.fogColor = s.fogColor;
-            RenderSettings.ambientLight = s.ambient;
+            RenderSettings.ambientLight = s.ambient * ambientTint;
 
             if (moon != null)
             {
-                moon.color = s.moonColor;
-                moon.intensity = s.moonIntensity;
+                moon.color = s.moonColor * moonTint;
+                moon.intensity = s.moonIntensity * moonBoost;
                 moon.transform.rotation = Quaternion.Euler(s.moonPitch, moonYaw, 0f);
             }
 
