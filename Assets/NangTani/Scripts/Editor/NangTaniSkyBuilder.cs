@@ -41,6 +41,7 @@ namespace NangTani.EditorTools
         {
             public int zone;
             public float x, z, width, height, alpha, phase;
+            public float y;       // hauteur du terrain sous la nappe (0 si absente)
         }
 
         [MenuItem("Nang Tani/3 - Brume et lune")]
@@ -156,12 +157,12 @@ namespace NangTani.EditorTools
                 var offsets = new List<Vector2>();
                 var data = new List<Vector2>();
                 var triangles = new List<int>();
-                var bounds = new Bounds(new Vector3(zone.Value[0].x, 0f, zone.Value[0].z), Vector3.zero);
+                var bounds = new Bounds(new Vector3(zone.Value[0].x, zone.Value[0].y, zone.Value[0].z), Vector3.zero);
 
                 foreach (var card in zone.Value)
                 {
                     int first = vertices.Count;
-                    var center = new Vector3(card.x, -0.15f, card.z);
+                    var center = new Vector3(card.x, card.y - 0.15f, card.z);
                     for (int corner = 0; corner < 4; corner++)
                     {
                         float u = corner == 1 || corner == 2 ? 1f : 0f;
@@ -190,6 +191,24 @@ namespace NangTani.EditorTools
 
                 CreateRenderer(mesh.name, parent, mesh, material);
             }
+        }
+
+        /// <summary>Replace les nappes de brume deja presentes (apres un changement de terrain, menu 4).</summary>
+        internal static void RebuildMist(Scene scene)
+        {
+            var layoutAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(SkyDir + "/mist_layout.json");
+            var mistShader = Shader.Find("NangTani/Mist");
+            if (layoutAsset == null || mistShader == null) return;
+
+            bool found = false;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                if (go.name != MistObject) continue;
+                Object.DestroyImmediate(go);
+                found = true;
+            }
+            // Sans brume dans la scene, on n'en ajoute pas : c'est le role du menu 3.
+            if (found) BuildMist(JsonUtility.FromJson<Layout>(layoutAsset.text), MistMaterial(mistShader));
         }
 
         static void CreateRenderer(string name, Transform parent, Mesh mesh, Material material)

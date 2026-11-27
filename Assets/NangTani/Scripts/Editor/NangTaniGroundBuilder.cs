@@ -91,6 +91,13 @@ namespace NangTani.EditorTools
         {
             public Plant[] plants;
             public float[] paddy;   // riziere : x min, x max, z min, z max
+            public House[] houses;  // hauteur de la butte sous chaque maison
+        }
+
+        [System.Serializable]
+        class House
+        {
+            public float x, y, z;
         }
 
         [System.Serializable]
@@ -181,6 +188,9 @@ namespace NangTani.EditorTools
                 if (old != null) old.gameObject.SetActive(false);
             }
 
+            RaiseHouses(env, plants.houses);
+            NangTaniSkyBuilder.RebuildMist(scene);
+
             bool replanted = NangTaniDecorBuilder.RebuildVegetation(env, (model, x, z) =>
             {
                 var p = plants.paddy;
@@ -195,8 +205,26 @@ namespace NangTani.EditorTools
             EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
 
-            Info("Sol en relief, eau et " + plants.plants.Length + " plantes ajoutes a NangTani_Decor." +
+            Info("Sol en relief, eau et " + plants.plants.Length + " plantes ajoutes a NangTani_Decor.\nMaisons, foret et brume reposees sur le terrain." +
                  (replanted ? "" : "\n\nAttention : la foret n'a pas pu etre reposee sur le relief (lance le menu 2, puis 3 et 4)."));
+        }
+
+        /// <summary>Pose chaque maison sur sa butte. Hauteur absolue : relancer le menu ne cumule rien.</summary>
+        static void RaiseHouses(Transform env, House[] houses)
+        {
+            if (houses == null) return;
+            for (int i = 0; i < env.childCount; i++)
+            {
+                var child = env.GetChild(i);
+                if (child.name != "Maison") continue;
+                var p = child.localPosition;
+                foreach (var h in houses)
+                {
+                    if (Mathf.Abs(p.x - h.x) > 0.1f || Mathf.Abs(p.z - h.z) > 0.1f) continue;
+                    child.localPosition = new Vector3(p.x, h.y, p.z);
+                    break;
+                }
+            }
         }
 
         // ==================================================================
